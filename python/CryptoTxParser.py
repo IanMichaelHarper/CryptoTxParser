@@ -454,7 +454,7 @@ def main():
     parser = optparse.OptionParser()
     parser.add_option('-f', '--file', dest='file', help='file with transaction logs')
     parser.add_option('-c', '--fiat_currency', dest='fiatCurrency', default="USD", help='base fiat currency to use')
-    parser.add_option('-l', '--long_term_days', dest='ltDays', default=366, help='days until considered long term gain, default=367 (add one for leap-year safety)')
+    parser.add_option('-l', '--long_term_days', dest='ltDays', default=366, help='days until considered long term gain, default=366 (add one for leap-year safety)')
     parser.add_option('-y', '--year', dest='year', default=-1, help='year to evaluate gains for, -1 (default) for all transactions')
     parser.add_option('-s', '--summary', dest='summary', action="store_true", default=False, help='print wallet summaries')
     parser.add_option('-H', '--no_header', dest='no_header', action="store_true", default=False, help='if your data does not have a header, turn this flag on')
