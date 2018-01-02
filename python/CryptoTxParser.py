@@ -371,6 +371,15 @@ def processTransaction(wallets, fiatWallet, txInfo):
                 coin = getCoin(wallet, txInfo.srcCurrency)
                 rec1 = Record(txInfo.ts, coinVal = txInfo.srcValue)
                 recs = coin.rem(txInfo, [rec1], xfer=True)
+                #distribute fees
+                fees = txInfo.srcValue - txInfo.dstValue
+                for rec in reversed(recs):
+                    if fees <= rec.coinVal:
+                        rec.coinVal -= fees
+                    else:
+                        rmvd = rec.coinVal
+                        rec.coinVal = Decimal(0)
+                        fees -= rmvd                
                 wallet = getWallet(wallets, txInfo.dstWallet)
                 coin = getCoin(wallet, txInfo.dstCurrency)
                 coin.add(txInfo, recs)
