@@ -37,12 +37,16 @@ class CryptoCompare(object):
         base = base.upper()
         quote = quote.upper()
         with urlopen(CryptoCompare.URL+CryptoCompare.HISTORICAL+"?fsym="+base+"&tsyms="+quote+"&ts="+ts) as d:
-            data = json.loads(d.readline())
+            resp = d.readline()
+            data = json.loads(resp)
             if 'Response' in data and data['Response'] == "Error":
+                print("ERROR when fetching price for "+base+"/"+quote+" for date:"+str(ts)+" response:\n"+str(resp))
                 return None
-            if base in data and quote in data[base]:
+            elif base in data and quote in data[base]:
                 return data[base][quote]
-            return None
+            else:
+                print("ERROR when fetching price for "+base+"/"+quote+" for date:"+str(ts)+" response:\n"+str(resp))
+                return None
         
     def hasCoin(self, coin):
         for c in self.coins:
@@ -147,13 +151,14 @@ class Record(object):
         self.ts = ts
         self.originalTs = originalTs
         self.coinVal = coinVal
-        self.fiatVal = fiatVal
+        if fiatVal is None:
+            self.fiatVal = Decimal(0)
+            self.fetchError = True
+        else:
+            self.fiatVal = fiatVal
+            self.fetchError = False
         self.gain = gain
             
-    def setFiatVal(self, currency, fiat):
-        fiatPx = Decimal(cryptocompare.getPrice(base=currency, quote=fiat, ts=str(ts)))
-        self.fiatVal = fiatPx * self.coinVal
-        
     def isShortTerm(self):
         if self.originalTs == 0:
             return True
@@ -247,11 +252,15 @@ class Coin(object):
         self.name = name
         self.txs = []
         self.curRecs = []
+        self.errTxs = []
         
     def add(self, txInfo, recs):
         for rec in recs:
             self.txs.append(deepcopy(txInfo))
-            self.curRecs.append(deepcopy(rec))            
+            if rec.fetchError:
+                self.errTxs.append(deepcopy(txInfo))
+            else:
+                self.curRecs.append(deepcopy(rec))            
         
     def rem(self, txInfo, recs, xfer=False):
         if debug:
@@ -360,7 +369,11 @@ def processTransaction(wallets, fiatWallet, txInfo):
                     print("3a1 payment out, so calculate tax gains")
                 wallet = getWallet(wallets, txInfo.srcWallet)
                 coin = getCoin(wallet, txInfo.srcCurrency)
-                rec1 = Record(txInfo.ts, coinVal = txInfo.srcValue, fiatVal = (Decimal(cryptocompare.getPrice(base=txInfo.srcCurrency, quote=fiatWallet.fiatCurrency, ts=str(txInfo.ts))) * txInfo.srcValue))
+                fiatVal = None
+                ccPx = cryptocompare.getPrice(base=txInfo.srcCurrency, quote=fiatWallet.fiatCurrency, ts=str(txInfo.ts))
+                if ccPx is not None:
+                    fiatVal = (Decimal(ccPx) * txInfo.srcValue)
+                rec1 = Record(txInfo.ts, coinVal = txInfo.srcValue, fiatVal = fiatVal)
                 recs = coin.rem(txInfo, [rec1])
                 fiatWallet.add(txInfo, recs)
             elif txInfo.type == "transfer":
@@ -387,7 +400,11 @@ def processTransaction(wallets, fiatWallet, txInfo):
                 #someone paid us, so calculate as 100% gains
                 if debug:
                     print("3a3 someone paid us, so calculate as 100% gains")
-                rec1 = Record(txInfo.ts, coinVal = txInfo.dstValue, fiatVal = (Decimal(cryptocompare.getPrice(base=txInfo.dstCurrency, quote=fiatWallet.fiatCurrency, ts=str(txInfo.ts))) * txInfo.dstValue))
+                fiatVal = None
+                ccPx = cryptocompare.getPrice(base=txInfo.dstCurrency, quote=fiatWallet.fiatCurrency, ts=str(txInfo.ts))
+                if ccPx is not None:
+                    fiatVal = (Decimal(ccPx) * txInfo.dstValue)
+                rec1 = Record(txInfo.ts, coinVal = txInfo.dstValue, fiatVal = fiatVal)
                 wallet = getWallet(wallets, txInfo.dstWallet)
                 coin = getCoin(wallet, txInfo.dstCurrency)
                 coin.add(txInfo, [rec1])
@@ -401,12 +418,20 @@ def processTransaction(wallets, fiatWallet, txInfo):
                 print("3b we are not converting from fiat- not a transfer- we are converting coin to coin")
             wallet = getWallet(wallets, txInfo.srcWallet)
             coin = getCoin(wallet, txInfo.srcCurrency)
-            rec1 = Record(txInfo.ts, coinVal = txInfo.srcValue, fiatVal = (Decimal(cryptocompare.getPrice(base=txInfo.srcCurrency, quote=fiatWallet.fiatCurrency, ts=str(txInfo.ts))) * txInfo.srcValue))
+            fiatVal1 = None
+            ccPx1 = cryptocompare.getPrice(base=txInfo.srcCurrency, quote=fiatWallet.fiatCurrency, ts=str(txInfo.ts))
+            if ccPx1 is not None:
+                fiatVal1 = (Decimal(ccPx1) * txInfo.srcValue)            
+            rec1 = Record(txInfo.ts, coinVal = txInfo.srcValue, fiatVal = fiatVal1)
             recs = coin.rem(txInfo, [rec1])
             fiatWallet.add(txInfo, recs)
             wallet = getWallet(wallets, txInfo.dstWallet)
             coin = getCoin(wallet, txInfo.dstCurrency)
-            rec2 = Record(txInfo.ts, coinVal = txInfo.dstValue, fiatVal = (Decimal(cryptocompare.getPrice(base=txInfo.dstCurrency, quote=fiatWallet.fiatCurrency, ts=str(txInfo.ts))) * txInfo.dstValue))
+            fiatVal2 = None
+            ccPx2 = cryptocompare.getPrice(base=txInfo.dstCurrency, quote=fiatWallet.fiatCurrency, ts=str(txInfo.ts))
+            if ccPx2 is not None:
+                fiatVal2 = (Decimal(ccPx2) * txInfo.dstValue)            
+            rec2 = Record(txInfo.ts, coinVal = txInfo.dstValue, fiatVal = fiatVal2)
             coin.add(txInfo, [rec2])
     if debug:
         print("****************************************")
@@ -443,6 +468,8 @@ def parseFile(fiatCurrency, fn, printSummary, ignoreHeader=True):
     txs.sort(key=lambda tx: tx.ts)
     
     for tx in txs:
+        if activeYear != -1 and int(datetime.fromtimestamp(int(tx.ts)).strftime('%Y')) > activeYear:
+            continue
         if tx.type == "payment" or tx.type == "transfer":
             if tx.srcCurrency == "" and srcCurrency == "":
                 continue
@@ -454,11 +481,19 @@ def parseFile(fiatCurrency, fn, printSummary, ignoreHeader=True):
                 tx.srcCurrency = tx.dstCurrency
         processTransaction(coinWallets, fiatWallet, tx)
     
-    if printSummary:
-        for key in coinWallets:
+    errTxs = []
+    for key in coinWallets:
+        for coinKey in coinWallets[key].coins:
+            errTxs.extend(coinWallets[key].coins[coinKey].errTxs)
+        if printSummary:
             print(str(coinWallets[key]))
     print(fiatWallet.getGainSummary())
     
+    if len(errTxs) > 0:
+        print("!! Warning! The following transactions could not be resolved to fiat !!\n\n")
+        for tx in errTxs:
+            print(str(tx)+'\n')
+
 def main():
     parser = optparse.OptionParser()
     parser.add_option('-f', '--file', dest='file', help='file with transaction logs')
