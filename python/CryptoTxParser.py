@@ -288,13 +288,12 @@ class Coin(object):
                     else:
                         pct = rec.coinVal / curRec.coinVal
                         curRecFiatVal = (curRec.fiatVal * pct)
-                        recFiatVal = (rec.fiatVal * pct)
                         curRec.coinVal = curRec.coinVal - rec.coinVal
                         curRec.fiatVal = curRec.fiatVal - curRecFiatVal
                         originalTs = curRec.originalTs
                         if originalTs == 0:
                             originalTs = curRec.ts  
-                        tmpRec = Record(rec.ts, coinVal = rec.coinVal, fiatVal = curRecFiatVal if xfer else recFiatVal, gain = (rec.fiatVal - curRecFiatVal) if not xfer else rec.gain, originalTs = originalTs)
+                        tmpRec = Record(rec.ts, coinVal = rec.coinVal, fiatVal = curRecFiatVal if xfer else rec.fiatVal, gain = (rec.fiatVal - curRecFiatVal) if not xfer else rec.gain, originalTs = originalTs)
                         retRecs.append(tmpRec)
                         rec.coinVal = Decimal(0)
         self.curRecs = [i for i in self.curRecs if not i.coinVal.is_zero()]
